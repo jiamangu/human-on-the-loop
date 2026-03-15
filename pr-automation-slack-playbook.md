@@ -1,3 +1,8 @@
+---
+layout: default
+title: PR 自动创建与 Slack 通知
+---
+
 # PR 自动创建与 Slack 通知迁移手册
 
 这份文档用于把当前仓库已经验证过的机制，迁移到另一个 GitHub 仓库中。

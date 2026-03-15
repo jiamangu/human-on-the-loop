@@ -1,3 +1,8 @@
+---
+layout: default
+title: Agent Team → Slack 实时通知
+---
+
 # Claude Code Agent Team → Slack 实时通知
 
 > 将本文件粘贴给 Claude Code，它会自动创建所有文件并完成配置。
