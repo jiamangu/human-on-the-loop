@@ -1,8 +1,8 @@
-# Human on the Loop
+# Human On the Loop
 
 如果你也不喜欢守着 CLI 等 Agent 干活，这里有一些可以直接粘贴给 Claude Code 执行的 Playbook，让 Slack 替你值班。
 
-**在线阅读：** [GitHub Pages 站点](https://jiamangu.github.io/human-on-the-loop/)
+**在线阅读：** [Human On the Loop](https://jiamangu.github.io/human-on-the-loop/)
 
 ## Playbooks
 
