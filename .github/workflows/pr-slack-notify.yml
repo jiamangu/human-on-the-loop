@@ -1,0 +1,66 @@
+name: PR Slack Notify
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+      - closed
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Skip when webhook is not configured
+        if: ${{ env.SLACK_WEBHOOK_URL == '' }}
+        run: |
+          echo "SLACK_WEBHOOK_URL is not configured; skipping notification."
+
+      - name: Build message payload
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        id: payload
+        env:
+          REPO: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGED: ${{ github.event.pull_request.merged }}
+        run: |
+          node - <<'NODE' >> "$GITHUB_OUTPUT"
+          const action = process.env.ACTION;
+          const merged = process.env.MERGED === "true";
+
+          let status = "updated";
+          if (action === "opened") status = "opened";
+          if (action === "reopened") status = "reopened";
+          if (action === "ready_for_review") status = "ready for review";
+          if (action === "closed") status = merged ? "merged" : "closed";
+
+          const text = [
+            `GitHub PR ${status}: #${process.env.PR_NUMBER} ${process.env.PR_TITLE}`,
+            `Repo: ${process.env.REPO}`,
+            `Author: ${process.env.PR_AUTHOR}`,
+            `Branch: ${process.env.HEAD_REF} -> ${process.env.BASE_REF}`,
+            `URL: ${process.env.PR_URL}`,
+          ].join("\n");
+
+          process.stdout.write(`payload=${JSON.stringify({ text })}\n`);
+          NODE
+
+      - name: Send Slack notification
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        env:
+          PAYLOAD: ${{ steps.payload.outputs.payload }}
+        run: |
+          curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            --data "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL"
