@@ -207,13 +207,16 @@ chmod +x scripts/create_pr.sh
 
 这个工作流负责在 PR 生命周期关键节点把通知发到 Slack。
 
+> **为什么用 `pull_request_target` 而不是 `pull_request`？**
+> GitHub 出于安全考虑，`pull_request` 事件来自 fork 时不会注入 secrets，导致 `SLACK_WEBHOOK_URL` 为空、通知跳过。`pull_request_target` 在目标仓库的上下文中运行，可以访问 secrets。这个 workflow 只发通知、不 checkout 或执行 PR 中的代码，所以安全上没有问题。
+
 建议内容如下：
 
 ```yaml
 name: PR Slack Notify
 
 on:
-  pull_request:
+  pull_request_target:
     types:
       - opened
       - reopened
