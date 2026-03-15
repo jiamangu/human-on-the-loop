@@ -33,7 +33,9 @@ jobs:
           fi
 
       - name: Credential scan
+        id: credential-scan
         if: steps.changed.outputs.no_files != 'true'
+        continue-on-error: true
         run: |
           FOUND=0
 
@@ -82,7 +84,9 @@ jobs:
           echo "Credential scan passed."
 
       - name: Sensitive content scan
+        id: sensitive-scan
         if: steps.changed.outputs.no_files != 'true'
+        continue-on-error: true
         env:
           SENSITIVE_PATTERNS: ${{ secrets.SENSITIVE_PATTERNS }}
         run: |
@@ -121,3 +125,11 @@ jobs:
             exit 1
           fi
           echo "Sensitive content scan passed."
+
+      - name: Check results
+        if: steps.changed.outputs.no_files != 'true'
+        run: |
+          if [ "${{ steps.credential-scan.outcome }}" = "failure" ] || [ "${{ steps.sensitive-scan.outcome }}" = "failure" ]; then
+            echo "::error::Sensitivity check failed"
+            exit 1
+          fi
