@@ -1,0 +1,7 @@
+This file tests the sensitivity check workflow.
+
+Credential test:
+slack_token = xoxb-test-fake-token-12345
+
+Business sensitive content test:
+Mira is a great product.
