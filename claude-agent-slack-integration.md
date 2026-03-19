@@ -72,28 +72,26 @@ Claude Code hooks 通过 stdin 传入 JSON。**以下是各事件实际传入的
 - 捕获 HTTP 429 和 `error=ratelimited`，读 `Retry-After` header
 - 最多重试 3 次，错误输出到 stderr
 
-### 6 个事件的处理逻辑
+### 7 个事件的处理逻辑
 
 **SessionStart**
 - **不再直接创建 Slack Thread**，仅初始化内存状态
 - 存储 `session_id`，初始化 `members`、`agent_id_map`、`task_count` 等
 - 清除前一次会话的 `thread_ts`、`top_msg_ts`、`top_msg_text`、`topic`
-- Thread 创建延迟到首个团队成员 SubagentStart 时触发（见下方）
+- Thread 创建延迟到首次 PostToolUse（SendMessage）时触发（见下方）
 
 **UserPromptSubmit**
 - 只在首次触发时执行（state 中 `topic` 为空）
-- **前置条件**：`thread_ts` 必须已存在（Thread 尚未创建时直接跳过）
 - 从 `prompt` 截取前 40 字符作为会话主题（换行符替换为空格）
-- 用 `chat.update` 更新顶层消息：`🤖 Agent 团队会话：{项目名} | {主题} | {时间}`
+- **不依赖 thread 已存在**：先将 topic 存入 state，等 `_ensure_thread` 创建 thread 时自动带上
+- 如果 thread 已存在，用 `chat.update` 更新顶层消息：`🤖 TeamRoom：{项目名} | {主题} | {时间}`
 - 同步更新 `state["top_msg_text"]`（SessionEnd 会读它追加 ✅）
 
-**SubagentStart**（含 Thread 懒创建逻辑）
+**SubagentStart**
 - 解析显示名（团队成员用 agent_type，内置类型用 "C.C."）
 - 存储 `agent_id → 显示名` 映射
-- **Thread 懒创建**：
-  - 内置 agent（Explore、general-purpose 等）且 Thread 尚未创建 → 仅存 id 映射，不创建 Thread，不发通知
-  - 团队成员 agent（ceo、cto 等）检测到 Thread 不存在 → 调用 `_ensure_thread()` 创建顶层消息 `🤖 Agent 团队会话：{项目名} | {时间}`，将 `ts` 存为 `thread_ts`
-  - `_ensure_thread()` 内部有并发保护：多个 agent 同时触发时，只有第一个会实际创建 Thread
+- **注意**：当前版本 Claude Code 中 SubagentStart/SubagentStop 事件不稳定触发，不应依赖其创建 Thread
+- 如果 thread 已存在，发送成员加入通知；否则仅存 id 映射
 - 同名成员只通知一次
 - Thread 内发送：`👤 {名称} 加入讨论（当前成员：xxx、xxx）`
 
@@ -109,7 +107,15 @@ Claude Code hooks 通过 stdin 传入 JSON。**以下是各事件实际传入的
 **SessionEnd**
 - 发送汇总统计（成员、对话轮次、任务数、持续时间）
 - 用 `chat.update` 更新顶层消息追加 ✅
-- **已知问题**：对话轮次（`round`）始终为 0，因为当前代码没有任何事件递增该计数器
+
+**PostToolUse**（含 Thread 懒创建逻辑）
+- 仅处理 `tool_name == "SendMessage"` 的事件，其他工具调用直接跳过
+- **Thread 懒创建**：首次 SendMessage 时如果 thread 不存在，调用 `_ensure_thread()` 创建
+- `_ensure_thread()` 创建顶层消息时自动带上已存的 topic：`🤖 TeamRoom：{项目名} | {主题} | {时间}`
+- `_ensure_thread()` 内部有并发保护：多个 agent 同时触发时，只有第一个会实际创建 Thread
+- **过滤协议消息**：`message` 为 dict 类型时（shutdown_request/shutdown_response/plan_approval 等结构化消息）不发到 Slack
+- 递增对话轮次计数器 `round`
+- 格式：`💬 {sender} → {recipient} ┃ R{round} {时间}\n{消息摘要}`
 
 ---
 
@@ -127,6 +133,7 @@ Claude Code hooks 通过 stdin 传入 JSON。**以下是各事件实际传入的
     "SubagentStart": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
     "SubagentStop": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
     "TaskCompleted": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}]
   }
 }
@@ -139,9 +146,13 @@ Claude Code hooks 通过 stdin 传入 JSON。**以下是各事件实际传入的
 ## Slack Thread 效果示例
 
 ```
-🤖 Agent 团队会话：voice-agent-project | 讨论 Voice Agent 下一阶段技术优先级 | 23:41:32 ✅
+🤖 TeamRoom：voice-agent-project | 讨论 Voice Agent 下一阶段技术优先级 | 23:41:32 ✅
   ├─ 👤 ceo 加入讨论（当前成员：ceo）
   ├─ 👤 cto 加入讨论（当前成员：ceo、cto）
+  ├─ 💬 ceo → cto ┃ R1 23:42:15
+  │   我们先对齐技术优先级 ...
+  ├─ 💬 cto → ceo ┃ R2 23:43:22
+  │   同意，LiveKit 迁移放第一优先 ...
   ├─ ✅ ceo 完成 ┃ 23:45:11
   │   CEO-CTO 双人会议总结 ...
   ├─ ✅ cto 完成 ┃ 23:45:28
@@ -208,54 +219,18 @@ python.org 安装的 Python（非 Homebrew）默认没有 SSL 证书，调 Slack
 
 修复：运行一次 `/Applications/Python {版本}/Install Certificates.command`
 
-### 6. SessionStart 不再创建 Thread
+### 6. SubagentStart/SubagentStop 事件不稳定触发
 
-原始设计让 SessionStart 直接创建 Slack Thread。当前实现改为 **懒创建**：SessionStart 只初始化状态，Thread 在首个团队成员 SubagentStart 时才创建。这样纯 Harness 模式（不启动团队成员）不会产生空 Thread。后续事件通过状态文件读取 `thread_ts`，如果还没写入就静默跳过。
+当前版本 Claude Code 中 SubagentStart/SubagentStop 事件不稳定触发。**不应依赖 SubagentStart 来创建 Thread**。改为在首次 PostToolUse（SendMessage）时通过 `_ensure_thread()` 自动创建。SubagentStart 仅用于存储 agent_id 映射和发送成员加入通知（如果 thread 已存在）。
 
-### 7. 对话轮次计数器未实现
+### 7. 协议消息会污染 Slack
 
-SessionEnd 汇总里的"对话轮次"读取 `state["round"]`，但没有任何事件递增这个值，导致始终显示 0。如需修复，应在 `UserPromptSubmit` 中每次触发时递增 `round`（不仅限首次）。
+Agent 之间的 SendMessage 中，`message` 字段有时为 dict 类型（如 `shutdown_request`、`shutdown_response`、`plan_approval`），这些是结构化协议消息，不应发到 Slack。在 `handle_post_tool_use` 中用 `isinstance(message, dict)` 过滤。
 
 ---
 
-## 附录：PostToolUse 事件（可选扩展）
+## 附录：PostToolUse 噪音控制
 
-当前方案不监听 PostToolUse，因为实践中发现 **噪音远大于信号**。如果未来需要监听工具调用，以下是要点：
+PostToolUse 是 **必须启用** 的 hook，因为 Thread 懒创建和对话轮次计数都依赖它。当前实现仅处理 `SendMessage` 工具，其他工具调用在 handler 入口直接 return。
 
-### 字段
-
-| 字段 | 说明 |
-|------|------|
-| `tool_name` | 工具名称 |
-| `tool_input` | 工具输入参数 |
-| `tool_response` | 工具返回值（**不是** `tool_output`） |
-
-注意：PostToolUse 没有字段区分当前是主会话还是子 agent。
-
-### 噪音问题
-
-12 个 agent 并行时，单次讨论可以产生 **100+ 条文件操作消息**（Read、Glob、Grep 等），完全淹没有用信息。
-
-### 过滤建议
-
-如果要启用，必须做白名单过滤：
-
-- **跳过**：Read、Write、Edit、Glob、Grep、Skill、ToolSearch
-- **只记录高信号工具**：
-  - `SendMessage`：`📨 第N轮 ┃ {sender} → {recipient}`
-  - `TeamCreate`：`👥 团队已创建：{name}`
-  - `Agent`：`🚀 启动 Agent ┃ {描述}`
-  - `WebSearch`/`WebFetch`：`🌐 网络调用 ┃ {输入摘要}`
-  - `Bash`：`⚙️ 命令执行 ┃ {命令摘要}`
-  - `mcp__*`：`🔧 MCP ┃ {工具名}`
-- **不要输出 `tool_response`**，只记录 `tool_input` 摘要，减少噪音
-
-### 配置
-
-在 `settings.local.json` 的 hooks 中加一条即可：
-
-```json
-"PostToolUse": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}]
-```
-
-然后在 `slack_notifier.py` 的 HANDLERS 中注册 `"PostToolUse": handle_post_tool_use`。
+如果未来需要扩展监听其他工具，12 个 agent 并行时单次讨论可以产生 **100+ 条文件操作消息**，必须做白名单过滤。建议只记录高信号工具（TeamCreate、Agent、WebSearch、Bash、mcp__* 等），跳过 Read、Write、Edit、Glob、Grep 等。
