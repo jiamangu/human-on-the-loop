@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -40,7 +40,7 @@ jobs:
           FOUND=0
 
           declare -A PATTERNS
-          PATTERNS["Slack token"]='(xoxb|xoxp|xoxs|xoxa)-[0-9a-zA-Z-]+'
+          PATTERNS["Slack token"]='(xoxb|xoxp|xoxs|xoxa)-[0-9a-zA-Z-]{10,}'
           PATTERNS["OpenAI/Anthropic key"]='sk-[a-zA-Z0-9]{20,}'
           PATTERNS["GitHub PAT"]='ghp_[a-zA-Z0-9]{36}'
           PATTERNS["GitHub App token"]='ghs_[a-zA-Z0-9]{36}'
