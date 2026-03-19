@@ -133,7 +133,7 @@ Claude Code hooks 通过 stdin 传入 JSON。**以下是各事件实际传入的
     "SubagentStart": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
     "SubagentStop": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
     "TaskCompleted": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
-    "PostToolUse": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
+    "PostToolUse": [{"matcher": "SendMessage", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/slack_notifier.py\"", "timeout": 10, "async": true}]}]
   }
 }
